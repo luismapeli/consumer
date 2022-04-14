@@ -70,7 +70,9 @@ IS
       cliente_existe_    VARCHAR2(5);
       posicao_virgula_   NUMBER;
       external_id_type_order_ VARCHAR2(50);
-      external_id_contato_  NUMBER;
+      external_id_contato_  NUMBER; 
+      count_                NUMBER;
+      i_                    NUMBER;
    
       CURSOR get_cliente(code_ IN VARCHAR2) IS
                                                SELECT
@@ -89,6 +91,9 @@ IS
                                                     ,CASE WHEN UPPER(G.state_registration) LIKE ('ISENT%') THEN 'true' ELSE 'false' END  AS ie_isento_flag
                                                     ,LOWER(NVL(SALES_PART_SALESMAN_API.Get_C_Bolsao_Salesman(i.vendor_id ),'false'))     AS bolsao_flag
                                                     ,convertToUnicode(i.vendor_id)                                                       AS vendedor
+                                                    ,CASE WHEN i.business_unit = 'MAXPRINT' THEN 'consumer_maxprint'
+                                                     WHEN i.business_unit = 'BOBINAS'  THEN 'consumer_bobinas'
+                                                     WHEN i.business_unit = 'PROVEDOR' THEN 'consumer_isp' END AS store_code
                                                FROM CUSTOMER_INFO_ADDRESS a
                                                INNER JOIN CUSTOMER_CREDIT_INFO_TAB e
                                                    ON a.customer_id = e.identity
@@ -99,10 +104,50 @@ IS
                                                INNER JOIN C_CUSTOMER_PORT_OVERVIEW i
                                                    ON a.customer_id = i.customer_id
                                                WHERE A.PARTY_TYPE_DB = 'CUSTOMER'
-                                                     AND i.business_unit = 'MAXPRINT' 
+                                                     AND i.business_unit IN ('MAXPRINT') --('MAXPRINT', 'BOBINAS', 'PROVEDOR') 
                                                      AND a.address_id = '000'
                                                      AND NVL(I.portfolio_default, 'FALSE') = 'TRUE'
                                                      AND A.customer_id = code_;
+   
+   
+      CURSOR get_sellers_num_(code_ IN VARCHAR2) IS
+                                               SELECT COUNT(*) AS count_ 
+                                               FROM CUSTOMER_INFO_ADDRESS a
+                                               INNER JOIN CUSTOMER_CREDIT_INFO_TAB e
+                                                   ON a.customer_id = e.identity
+                                               INNER JOIN CUSTOMER_TAX_INFO_BR f
+                                                   ON a.customer_id = f.customer_id  AND a.address_id = f.address_id
+                                               INNER JOIN CUSTOMER_BR_TAX_INFO g
+                                                   ON a.customer_id = g.customer_id AND a.address_id = g.address_id
+                                               INNER JOIN C_CUSTOMER_PORT_OVERVIEW i
+                                                   ON a.customer_id = i.customer_id
+                                               WHERE A.PARTY_TYPE_DB = 'CUSTOMER'
+                                                     AND i.business_unit IN ('MAXPRINT') --('MAXPRINT', 'BOBINAS', 'PROVEDOR') 
+                                                     AND a.address_id = '000'
+                                                     AND NVL(I.portfolio_default, 'FALSE') = 'TRUE'
+                                                     AND A.customer_id = code_;
+                                                     
+      CURSOR get_sellers_ids_(code_ IN VARCHAR2) IS
+                                               SELECT
+                                                     convertToUnicode(i.vendor_id)  AS vendedor
+                                                    ,CASE WHEN i.business_unit = 'MAXPRINT' THEN 'consumer_maxprint'
+                                                     WHEN i.business_unit = 'BOBINAS'  THEN 'consumer_bobinas'
+                                                     WHEN i.business_unit = 'PROVEDOR' THEN 'consumer_isp' END AS store_code
+                                               FROM CUSTOMER_INFO_ADDRESS a
+                                               INNER JOIN CUSTOMER_CREDIT_INFO_TAB e
+                                                   ON a.customer_id = e.identity
+                                               INNER JOIN CUSTOMER_TAX_INFO_BR f
+                                                   ON a.customer_id = f.customer_id  AND a.address_id = f.address_id
+                                               INNER JOIN CUSTOMER_BR_TAX_INFO g
+                                                   ON a.customer_id = g.customer_id AND a.address_id = g.address_id
+                                               INNER JOIN C_CUSTOMER_PORT_OVERVIEW i
+                                                   ON a.customer_id = i.customer_id
+                                               WHERE A.PARTY_TYPE_DB = 'CUSTOMER'
+                                                     AND i.business_unit IN ('MAXPRINT') --('MAXPRINT', 'BOBINAS', 'PROVEDOR') 
+                                                     AND a.address_id = '000'
+                                                     AND NVL(I.portfolio_default, 'FALSE') = 'TRUE'
+                                                     AND A.customer_id = code_;                                               
+                                                        
    
       CURSOR get_cliente_end(code_ IN VARCHAR2) IS
                                                    SELECT
@@ -155,6 +200,10 @@ IS
                                                             ,a.price_list_no  AS price_list_id_
                                                             ,a.deposit_id      AS stock_
                                                             ,a.operation_type  AS nf_issuer_
+                                                            , CASE WHEN a.operation_type LIKE '%B' THEN 'consumer_bobinas'
+                                                                   WHEN a.operation_type LIKE '%P' THEN 'consumer_isp'
+                                                                   WHEN a.operation_type LIKE '%M' THEN 'consumer_maxprint'
+                                                              END AS store_code_  
                                                           FROM C_PRICE_LIST_AVAIL_WEB a
                                                           WHERE a.customer_id = customer_id_;
    BEGIN
@@ -194,7 +243,6 @@ IS
                                           "is_default":' || rec_end_.end_default || ',
                                           "is_active": "true" 
                                           }';
-           -- DBMS_OUTPUT.put_line(json_end_);                             
             END LOOP;
             json_end_ := json_end_ || ']';
    
@@ -211,7 +259,8 @@ IS
                                  "first_name":"' || rec_contato_.contato || '",
                                  "telephone":"' || NVL(get_contato_telefone(rec_.code, rec_contato_.contato_db), get_contato_celular(rec_.code, rec_contato_.contato_db)) || '",
                                  "email":"' || get_contato_email(rec_.code, rec_contato_.contato_db) || '",
-                                 "job_title":"'  || rec_contato_.cargo_ || '"
+                                 "job_title":"'  || rec_contato_.cargo_ || '",
+                                 "is_active":1
                               }';
             END LOOP;
             json_contatos_ := json_contatos_ || ']';
@@ -228,7 +277,9 @@ IS
                json_order_type_ := json_order_type_ || '"label":"' || rec_order_type_.label_ || '",';
                json_order_type_ := json_order_type_ || '"stock":"'|| rec_order_type_.Stock_ || '",';
                json_order_type_ := json_order_type_ || '"price_list_id":"' || rec_order_type_.price_list_id_ || '",';
-               json_order_type_ := json_order_type_ || '"nf_issuer_uf":"'|| rec_order_type_.nf_issuer_ || '"';
+               json_order_type_ := json_order_type_ || '"nf_issuer_uf":"'|| rec_order_type_.nf_issuer_ || '",';
+               json_order_type_ := json_order_type_ || '"is_active": true,';
+               json_order_type_ := json_order_type_ || '"store_code":"'|| rec_order_type_.store_code_ || '"';
                json_order_type_ := json_order_type_ || '}' || CHR(10);
             END LOOP;
    
@@ -253,18 +304,43 @@ IS
                                      "is_icms_contributor":'|| rec_cliente_.contribuite_icms_flag || ',
                                      "is_isent_state_registration":'|| rec_cliente_.ie_isento_flag || '
                                   },
-                                  "consumer_attributes":{
-                                     "is_bolsao":' || rec_cliente_.bolsao_flag || ',
-                                     "erp_identity":"' ||rec_cliente_.codigo_cliente|| '",
-                                     "sales_representative":"'|| rec_cliente_.vendedor ||'"
-                                  },
-                                 "order_type": ' || json_order_type_ ||
+                                  
+                                  "consumer_attributes":[';
+                                  
+                                  OPEN get_sellers_num_(rec_cliente_.codigo_cliente);
+                                  FETCH get_sellers_num_ 
+                                     INTO count_;
+                                  CLOSE get_sellers_num_;
+                                  
+                                  i_ := 0;
+                                  
+                                  FOR rec_sellers_ IN get_sellers_ids_(rec_cliente_.codigo_cliente) LOOP
+                                  
+                                     i_ := i_ + 1;
+                                  
+                                     l_clob_request := l_clob_request ||
+                                   
+                                     '{
+                                      "is_bolsao":' || rec_cliente_.bolsao_flag || ',
+                                      "erp_identity":"' ||rec_cliente_.codigo_cliente|| '",
+                                      "sales_representative":"'|| rec_sellers_.vendedor ||'",
+                                      "store_code":"'|| rec_sellers_.store_code ||'"
+                                     }';
+                                    
+                                     IF i_ < count_ THEN
+                                        l_clob_request := l_clob_request || ',';
+                                     END IF;
+                                  
+                                  END LOOP;
+                                  
+                                  l_clob_request := l_clob_request ||
+                                  '],';
+                                  
+                                  l_clob_request := l_clob_request ||
+                                 '"order_type": ' || json_order_type_ ||
                                '}
                             }
                          }';
-            --dbms_output.put_line('--------------Request--------');
-
-            --DBMS_OUTPUT.put_line(l_clob_request);     
    
               dbms_output.put_line('--------------Request--------');
               dbms_output.put_line(l_clob_request);
@@ -274,18 +350,19 @@ IS
             cliente_existe_ := UPPER(cliente_existe_); 
    
             IF NVL(cliente_existe_, 'FALSE') = 'FALSE' THEN
+               dbms_output.put_line('Cliente: '||rec_cliente_.codigo_cliente||' nao existe no magento.');
                Execute_Json(token_ => token_, 
                             host_name_ => host_name_, 
-                            endPoint_ => '/rest/consumer_maxprint/V1/companyConsumer', 
+                            endPoint_ => '/rest/'||rec_cliente_.store_code||'/V1/companyConsumer', 
                             method_ => 'POST', 
                             l_clob_request_ => l_clob_request, 
                             l_clob_response_ => l_clob_response, 
                             status_erro_ => error_);
             ELSE
-   
+               dbms_output.put_line('Cliente: '||rec_cliente_.codigo_cliente||' já existe no magento.');
                Execute_Json(token_ => token_, 
                               host_name_ => host_name_, 
-                              endPoint_ => '/rest/consumer_maxprint/V1/companyUpdate/' || rec_cliente_.CODIGO_CLIENTE, 
+                              endPoint_ => '/rest/'||rec_cliente_.store_code||'/V1/companyUpdate/' || rec_cliente_.CODIGO_CLIENTE, 
                               method_ => 'PUT', 
                               l_clob_request_ => l_clob_request, 
                               l_clob_response_ => l_clob_response, 
@@ -294,9 +371,8 @@ IS
             
              dbms_output.put_line('--------------Response--------');
              dbms_output.put_line('Status do erro:' || error_ );
-             dbms_output.put_line(l_clob_response);
+            -- dbms_output.put_line(l_clob_response);
              dbms_output.put_line('--------------Response--------');
-            
    
             IF error_ = 'FALSE' THEN
                Atualizar_Notificacao(rec_.id);
@@ -791,7 +867,7 @@ IS
    
    BEGIN
    
-      endPoint_ :='/rest/consumer_maxprint/V1/companyExists/'||codigo_cliente_;
+      endPoint_ :='/rest/all/V1/companyExists/'||codigo_cliente_;
       l_clob_request:= '';
       Execute_Json(token_, host_name_, endPoint_, 'GET', l_clob_request, l_clob_response, error_status_);
    
@@ -891,7 +967,7 @@ IS
          dbms_output.put_line('Request');
          dbms_output.put_line(l_clob_request);
          dbms_output.put_line('Requestfim');
-         endPoint_ := '/rest/consumer_maxprint/V1/priceList';    
+         endPoint_ := '/rest/all/V1/priceList';    
          Execute_Json(token_, host_name_, endPoint_, 'POST', l_clob_request, l_clob_response, error_);
    
          IF error_ = 'FALSE' THEN
@@ -944,7 +1020,7 @@ IS
    
       CURSOR get_produto (codigo_produto_ VARCHAR2)IS 
                                                        SELECT 
-                                                           REPLACE('C' || a.part_no,' ','') AS sku_ 
+                                                           REPLACE('C' || a.part_no,' ','') AS sku_
                                                            ,convertToUnicode(a.c_comercial_description)||' '||REPLACE(a.part_no,' ','')  AS name_
                                                            ,REPLACE(a.weight_net,',','.') AS weight_
                                                            ,REPLACE(a.cubic_weight_land,',','.') AS cubic_weight_land_                                                           
@@ -952,8 +1028,24 @@ IS
                                                            ,REPLACE(NVL(b.storage_height_requirement,0),',','.') AS volume_height_
                                                            ,REPLACE(NVL(b.storage_depth_requirement,0),',','.') AS volume_length_
                                                            ,PART_GTIN_API.Get_Default_Gtin_No(a.part_no) AS ean_
-                                                           ,NVL(INVENTORY_PART_PLANNING_API.Get_Mul_Order_Qty('SC19M', a.part_no ),0) multiplo_venda_
-                                                           ,REPLACE(NVL(get_qtd_estoque(a.part_no, CASE WHEN a.c_comercial_description LIKE '%SSD%' AND a.part_no NOT IN ('50000020', '50000021') THEN 'SP11M' ELSE 'SC19M' END),0),',','.') AS qtde_estoque_
+                                                           ,NVL(INVENTORY_PART_PLANNING_API.Get_Mul_Order_Qty(CASE  WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%M' THEN 'SC19M' 
+                                                                                                                    WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%P' THEN 'SC19P'
+                                                                                                                    WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%B' THEN 'MG09B' END, a.part_no ),0) multiplo_venda_
+                                                           ,REPLACE(NVL(
+                                                           c_int_magento_consu_util_api.get_qtd_estoque(a.part_no, 
+                                                           CASE  WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%M' THEN 'SC19M' 
+                                                                 WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%P' THEN 'SC19P'
+                                                                 WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%B' THEN 'MG09B'
+                                                           END),0),',','.') AS qtde_estoque_,  
+                                                           CASE  WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%M' THEN 'SC19M' 
+                                                                 WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%P' THEN 'SC19P'
+                                                                 WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%B' THEN 'MG09B'
+                                                           END AS site_,
+                                                           CASE  WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%M' THEN 'consumer_maxprint' 
+                                                                 WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%P' THEN 'consumer_isp'
+                                                                 WHEN (SELECT IP.contract FROM INVENTORY_PART IP WHERE IP.part_no = codigo_produto_ AND ROWNUM = 1) LIKE '%B' THEN 'consumer_bobinas'
+                                                                 ELSE 'all'
+                                                           END AS store_code_                                                    
                                                        FROM PART_CATALOG a
                                                        LEFT JOIN PART_CATALOG_INVENT_ATTRIB b
                                                           ON a.part_no = b.part_no
@@ -973,7 +1065,11 @@ IS
                multiplo_venda_:=  rec_produto_.multiplo_venda_;
             END IF;
    
-            Pesquisar_desconto_venda(rec_.code, 'SC19M',perc_desc_vend_, perc_desc_ger_, perc_desc_dir_ );
+            Pesquisar_desconto_venda(rec_.code
+                                    ,rec_produto_.site_
+                                    ,perc_desc_vend_
+                                    ,perc_desc_ger_
+                                    ,perc_desc_dir_ );
    
             l_clob_request := '
                             {
@@ -1027,11 +1123,11 @@ IS
                                     },
                                     {
                                         "attribute_code": "ncm",
-                                        "value": "'|| get_ncm (rec_.code, 'SC19M') ||'"
+                                        "value": "'|| get_ncm (rec_.code, rec_produto_.site_) ||'"
                                     },
                                     {
                                         "attribute_code": "ipi",
-                                        "value": "'|| get_aliquota_ipi(rec_.code, 'SC19M') ||'"
+                                        "value": "'|| get_aliquota_ipi(rec_.code, rec_produto_.site_) ||'"
                                     },
                                                                              {
                                         "attribute_code": "sales_representative_max_discount",
@@ -1060,8 +1156,10 @@ IS
    
             dbms_output.put_line('--------------request--------');
             dbms_output.put_line(l_clob_request);
+            
+            dbms_output.put_line('Store: '||rec_produto_.store_code_);
    
-             endPoint_ := '/rest/consumer_maxprint/V1/products';    
+             endPoint_ := '/rest/'||rec_produto_.store_code_||'/V1/products';    
              Execute_Json(token_, host_name_, endPoint_, 'POST', l_clob_request, l_clob_response, error_);
    
             dbms_output.put_line('--------------response--------');
@@ -1104,6 +1202,7 @@ IS
       fator_icms_st_           NUMBER;
       iva_icms_st_             NUMBER;
       codigo_produto_          tax_part.part_no%TYPE;
+      store_code__             VARCHAR2(25);
    
       CURSOR get_list_notifications IS
                                        SELECT ID AS id,
@@ -1126,14 +1225,19 @@ IS
       7 - Estrangeiro, Aquis. no Mercado Interno, Incl. na Lista CAMEX
       8 - Nacional, Conteudo de Importacao > 70%
       */
+      
       CURSOR get_imp_icms (id_mat_imposto_ NUMBER)IS SELECT REPLACE('C' || b.part_no, ' ', '') AS sku_,
                                                             b.contract as site_,
+                                                            CASE WHEN B.contract LIKE '%B' THEN 'consumer_bobinas'
+                                                                 WHEN B.contract LIKE '%M' THEN 'consumer_maxprint'
+                                                                 WHEN B.contract LIKE '%P' THEN 'consumer_isp'
+                                                            END AS store_code_,
                                                             b.nbm_id AS ncm_,
                                                             b.tax_subst_group_id AS id_grupo_icms_st_,
                                                             CASE WHEN b.acquisition_origin_db IN (1,6)
                                                                      THEN NVL(NVL(b.ipi_percentage,NBM_API.Get_Ipi_Tax_Percent(b.nbm_id)),0)
                                                                  WHEN b.acquisition_origin_db IN (3,5,8) 
-                                                                      AND part_catalog_api.Get_C_Sales_Manufacturer_No(b.part_no) IN ('MAX','DAZ','GOT','RBB')
+                                                                      AND part_catalog_api.Get_C_Sales_Manufacturer_No(b.part_no) IN ('MAX','DAZ','GOT','RBB', 'REE', 'MGB', 'HUA', 'FUI', 'SUM', 'WEC', 'BPP')
                                                                       THEN NVL(NVL(b.ipi_percentage,NBM_API.Get_Ipi_Tax_Percent(b.nbm_id)),0)   
                                                                  ELSE 0 END  AS ipi_aliquota_,
                                                             a.STATE_SOURCE AS origem_uf_,
@@ -1169,6 +1273,8 @@ IS
          codigo_produto_ := NULL;
    
          FOR rec_imp_icms_ IN get_imp_icms (rec_.code) LOOP
+            
+            store_code__ := rec_imp_icms_.store_code_;
    
             fator_icms_st_ := 0;
             iva_icms_st_   := 0;
@@ -1216,12 +1322,12 @@ IS
    
          l_clob_request := '{"tax": [ ' || json_temp_ || '] }';
    
-         dbms_output.put_line('--------------request--------');
-          dbms_output.put_line(l_clob_request);
-         endPoint_ := '/rest/consumer_maxprint/V1/productTax';    
+         --dbms_output.put_line('--------------request--------');
+         -- dbms_output.put_line(l_clob_request);
+         endPoint_ := '/rest/'||store_code__||'/V1/productTax';    
          Execute_Json(token_, host_name_, endPoint_, 'POST', l_clob_request, l_clob_response, error_);
          dbms_output.put_line('--------------response--------');
-         dbms_output.put_line(error_);
+         dbms_output.put_line(l_clob_response);
    
          IF error_ = 'FALSE' THEN
             Atualizar_Notificacao(rec_.id);
@@ -1288,6 +1394,7 @@ IS
              l_clob_request := l_clob_request || '"external_id": "' || rec_cod_pgto_.condition_||'",';              
              l_clob_request := l_clob_request || '"is_default": ' || rec_cod_pgto_.default_||',';
              l_clob_request := l_clob_request || '"condition": "' || rec_cod_pgto_.condition_||'",';
+             l_clob_request := l_clob_request || '"is_active": 1,';
              l_clob_request := l_clob_request || '"due_date": '   || rec_cod_pgto_.prazo_medio_;
              l_clob_request := l_clob_request || '}';
          END LOOP;  
@@ -1782,7 +1889,7 @@ IS
                                                      FROM C_Custumers_Port a
                                                      WHERE 
                                                           a.COMPANY = 'RIO BRANCO'
-                                                          AND a.BUSINESS_UNIT = 'MAXPRINT'
+                                                          AND a.BUSINESS_UNIT IN ('MAXPRINT') --('MAXPRINT', 'BOBINAS', 'PROVEDOR')
                                                           AND a.PORTFOLIO_DEFAULT = 'TRUE'
                                                           AND a.customer_id = idCliente__;
    
@@ -2083,7 +2190,7 @@ IS
                                                       a.contract
                                                    FROM  INVENTORY_PART A 
                                                    WHERE A.part_no = id_produto__
-                                                   AND A.CONTRACT LIKE '%M'
+                                                   AND (A.CONTRACT LIKE '%M' OR A.contract LIKE '%P' OR A.contract LIKE '%B')
                                                    AND A.PART_STATUS  = 'A'
                                                    FETCH NEXT 1 ROWS ONLY;
    BEGIN
@@ -2235,7 +2342,7 @@ IS
       CURSOR get_ipi (cod_produto__ in VARCHAR2, site__ in VARCHAR2) IS SELECT 
                                                                            CASE WHEN b.acquisition_origin_db IN (1,6)
                                                                                    THEN NVL(NVL(b.ipi_percentage,NBM_API.Get_Ipi_Tax_Percent(b.nbm_id)),0)
-                                                                                WHEN b.acquisition_origin_db IN (3,5,8) AND part_catalog_api.Get_C_Sales_Manufacturer_No(b.part_no) IN ('MAX','DAZ','GOT','RBB')
+                                                                                WHEN b.acquisition_origin_db IN (3,5,8) AND part_catalog_api.Get_C_Sales_Manufacturer_No(b.part_no) IN ('MAX','DAZ','GOT','RBB', 'REE', 'MGB', 'HUA', 'FUI', 'SUM', 'WEC', 'BPP')
                                                                                    THEN NVL(NVL(b.ipi_percentage,NBM_API.Get_Ipi_Tax_Percent(b.nbm_id)),0)   
                                                                            ELSE 0 END  AS ipi_aliquota_
                                                                         FROM TAX_PART b
@@ -2354,7 +2461,7 @@ IS
          END IF; 
                  -- dbms_output.put_line(l_clob_request);
             IF rec_.operacaoIntegrador = 'I' THEN              
-               endPoint_ := '/rest/consumer_maxprint/V1/products/'|| codigo_produto_consumer_ ||'/media';   
+               endPoint_ := '/rest/all/V1/products/'|| codigo_produto_consumer_ ||'/media';   
                -- dbms_output.put_line(l_clob_request);
                Execute_Json(token_, host_name_, endPoint_, 'POST', l_clob_request, l_clob_response, error_);
             END IF;
@@ -2380,7 +2487,7 @@ IS
                                                        ordem_foto_ => ordem_foto_, 
                                                        desabilitado_ => desabilitado_, 
                                                        id_media_mag_ => id_media_mag_ );
-                        endPoint_ := '/rest/consumer_maxprint/V1/products/'|| codigo_produto_consumer_ ||'/media/' || id_media_mag_ ;
+                        endPoint_ := '/rest/all/V1/products/'|| codigo_produto_consumer_ ||'/media/' || id_media_mag_ ;
                         Execute_Json(token_, host_name_, endPoint_, 'PUT', l_clob_request, l_clob_response, error_);                             
                         EXIT;
                      END IF;   
@@ -4954,7 +5061,7 @@ IS
          END IF;        
          l_clob_request :=  l_clob_request || '}}';
          
-         endPoint_ := '/rest/consumer_maxprint/V1/orderIntegrate/' || entity_id_;
+         endPoint_ := '/rest/all/V1/orderIntegrate/' || entity_id_;
          DBMS_OUTPUT.put_line('l_clob_request: ' || l_clob_request);
          DBMS_OUTPUT.put_line('endPoint_ :' || endPoint_);
          Execute_Json(token_, host_name_, endPoint_, 'POST', l_clob_request, l_clob_response, error_);
@@ -4992,7 +5099,7 @@ IS
    
    BEGIN    
    
-      endPoint_ := '/rest/consumer_maxprint/V1/order/' || entity_id_ || '/ship';
+      endPoint_ := '/rest/all/V1/order/' || entity_id_ || '/ship';
       l_clob_request := '';
       Execute_Json(token_, host_name_, endPoint_, 'POST', l_clob_request, l_clob_response, error_);
    
