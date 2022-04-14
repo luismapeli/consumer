@@ -19,7 +19,9 @@ CREATE OR REPLACE TRIGGER IFSRIB.C_INT_CONSUMER_PRECO_TRG
                                                                FROM TAX_PART a
                                                                WHERE PART_NO = cod_produto_
                                                                AND a.FISCAL_PART_TYPE_DB = 2
-                                                               AND a.CONTRACT LIKE '%M';
+                                                               AND a.CONTRACT LIKE '%M'
+                                                               OR  a.contract LIKE '%P'
+                                                               OR  a.contract LIKE '%B';
 
       AFTER EACH ROW IS
          BEGIN

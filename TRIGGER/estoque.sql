@@ -63,7 +63,7 @@ CREATE OR REPLACE TRIGGER C_INT_CONSUMER_ESTOQUE_TRG
             IF tabRegistro.COUNT > 0 THEN
                FOR i IN 1..tabRegistro.LAST LOOP
                   IF tabRegistro(i).LocationTypeNew_ IN ('PICKING','DEEP')
-                     AND tabRegistro(i).siteNew_ = 'SC19M'
+                     AND tabRegistro(i).siteNew_ IN ('SC19M', 'MG09B', 'SC19P')
                      AND (NVL(tabRegistro(i).qtyOnhandNew_,0) <> NVL(tabRegistro(i).qtyOnhandOld_,0)
                             OR NVL(tabRegistro(i).qtyReservedNew_,0) <> NVL(tabRegistro(i).qtyReservedOld_,0)
                             OR NVL(tabRegistro(i).availabilitycontrolIdNew_,'DuMmy') <> NVL(tabRegistro(i).availabilitycontrolIdOld_,'DuMmy')
